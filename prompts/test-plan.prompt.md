@@ -1,7 +1,7 @@
 ---
 description: "Create a focused test plan for a feature, bug fix, migration, or risky code change."
 argument-hint: "Describe the change and risk areas"
-agent: "agent"
+mode: "agent"
 ---
 Create a practical test plan for the described change.
 

@@ -97,6 +97,12 @@ extract_skill_name() {
   sed -n '1,/^---$/p' "$file" | sed -n 's/^name:[[:space:]]*['\''"]\{0,1\}\([^'\''"]*\)['\''"]\{0,1\}[[:space:]]*$/\1/p' | head -n 1
 }
 
+frontmatter_has_key() {
+  local file="$1"
+  local key="$2"
+  sed -n '1,/^---$/p' "$file" | grep -Eq "^${key}[[:space:]]*:"
+}
+
 validate_sources() {
   require_dir "$INSTRUCTIONS_SRC"
   require_dir "$PROMPTS_SRC"
@@ -121,6 +127,10 @@ validate_sources() {
     esac
     if ! frontmatter_exists "$file"; then
       log "Missing YAML frontmatter delimiters: $file"
+      exit 1
+    fi
+    if frontmatter_has_key "$file" 'agent'; then
+      log "Prompt frontmatter uses deprecated key \"agent\"; use \"mode\" instead: $file"
       exit 1
     fi
   done < <(find "$PROMPTS_SRC" -maxdepth 1 -type f -print0)

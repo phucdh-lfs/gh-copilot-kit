@@ -13,6 +13,12 @@ extract_skill_name() {
   sed -n '1,/^---$/p' "$file" | sed -n 's/^name:[[:space:]]*['\''"]\{0,1\}\([^'\''"]*\)['\''"]\{0,1\}[[:space:]]*$/\1/p' | head -n 1
 }
 
+frontmatter_has_key() {
+  local file="$1"
+  local key="$2"
+  sed -n '1,/^---$/p' "$file" | grep -Eq "^${key}[[:space:]]*:"
+}
+
 validate_dir() {
   local path="$1"
   if [[ ! -d "$path" ]]; then
@@ -39,6 +45,7 @@ while IFS= read -r -d '' file; do
     *) printf 'Prompt file must end with .prompt.md: %s\n' "$file" >&2; exit 1 ;;
   esac
   frontmatter_exists "$file" || { printf 'Missing YAML frontmatter delimiters: %s\n' "$file" >&2; exit 1; }
+  frontmatter_has_key "$file" 'agent' && { printf 'Prompt frontmatter uses deprecated key "agent"; use "mode" instead: %s\n' "$file" >&2; exit 1; }
 done < <(find "$ROOT_DIR/prompts" -maxdepth 1 -type f -print0)
 
 while IFS= read -r -d '' skill_dir; do
