@@ -8,6 +8,7 @@ $RootDir = Split-Path -Parent $PSScriptRoot
 $InstructionsSrc = Join-Path $RootDir 'instructions'
 $PromptsSrc = Join-Path $RootDir 'prompts'
 $SkillsSrc = Join-Path $RootDir 'skills'
+$ProfilesSrc = Join-Path $RootDir 'profiles'
 
 function Require-Directory {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -47,6 +48,9 @@ function Test-FrontmatterHasKey {
     )
 
     $Lines = Get-Content -LiteralPath $Path -TotalCount 80
+    if ($Lines.Count -lt 2) {
+        return $false
+    }
     foreach ($Line in $Lines[1..($Lines.Count - 1)]) {
         if ($Line -eq '---') {
             return $false
@@ -58,48 +62,74 @@ function Test-FrontmatterHasKey {
     return $false
 }
 
-Require-Directory $InstructionsSrc
-Require-Directory $PromptsSrc
-Require-Directory $SkillsSrc
+function Validate-AssetRoot {
+    param(
+        [Parameter(Mandatory = $true)][string]$AssetRoot,
+        [Parameter(Mandatory = $true)][bool]$RequireAll
+    )
 
-foreach ($File in Get-ChildItem -LiteralPath $InstructionsSrc -File) {
-    if ($File.Name -notlike '*.instructions.md') {
-        throw "Instruction file must end with .instructions.md: $($File.FullName)"
+    $InstructionsRoot = Join-Path $AssetRoot 'instructions'
+    $PromptsRoot = Join-Path $AssetRoot 'prompts'
+    $SkillsRoot = Join-Path $AssetRoot 'skills'
+
+    if ($RequireAll) {
+        Require-Directory $InstructionsRoot
+        Require-Directory $SkillsRoot
     }
-    if (-not (Test-FrontmatterExists $File.FullName)) {
-        throw "Missing YAML frontmatter delimiters: $($File.FullName)"
+
+    if (Test-Path -LiteralPath $InstructionsRoot -PathType Container) {
+        foreach ($File in Get-ChildItem -LiteralPath $InstructionsRoot -File) {
+            if ($File.Name -notlike '*.instructions.md') {
+                throw "Instruction file must end with .instructions.md: $($File.FullName)"
+            }
+            if (-not (Test-FrontmatterExists $File.FullName)) {
+                throw "Missing YAML frontmatter delimiters: $($File.FullName)"
+            }
+        }
+    }
+
+    if (Test-Path -LiteralPath $PromptsRoot -PathType Container) {
+        foreach ($File in Get-ChildItem -LiteralPath $PromptsRoot -File) {
+            if ($File.Name -notlike '*.prompt.md') {
+                throw "Prompt file must end with .prompt.md: $($File.FullName)"
+            }
+            if (-not (Test-FrontmatterExists $File.FullName)) {
+                throw "Missing YAML frontmatter delimiters: $($File.FullName)"
+            }
+            if (Test-FrontmatterHasKey $File.FullName 'agent') {
+                throw "Prompt frontmatter uses deprecated key ""agent""; use ""mode"" instead: $($File.FullName)"
+            }
+        }
+    }
+
+    if (Test-Path -LiteralPath $SkillsRoot -PathType Container) {
+        foreach ($SkillDir in Get-ChildItem -LiteralPath $SkillsRoot -Directory) {
+            $SkillFile = Join-Path $SkillDir.FullName 'SKILL.md'
+            if (-not (Test-Path -LiteralPath $SkillFile -PathType Leaf)) {
+                throw "Missing SKILL.md in skill folder: $($SkillDir.FullName)"
+            }
+            if (-not (Test-FrontmatterExists $SkillFile)) {
+                throw "Missing YAML frontmatter delimiters: $SkillFile"
+            }
+            $SkillName = Get-SkillName $SkillFile
+            if ([string]::IsNullOrWhiteSpace($SkillName)) {
+                throw "Missing skill name in: $SkillFile"
+            }
+            if ($SkillName -ne $SkillDir.Name) {
+                throw "Skill folder/name mismatch: folder=$($SkillDir.Name) name=$SkillName"
+            }
+            if ($SkillName -notmatch '^[a-z0-9][a-z0-9-]{0,63}$') {
+                throw "Invalid skill name: $SkillName"
+            }
+        }
     }
 }
 
-foreach ($File in Get-ChildItem -LiteralPath $PromptsSrc -File) {
-    if ($File.Name -notlike '*.prompt.md') {
-        throw "Prompt file must end with .prompt.md: $($File.FullName)"
-    }
-    if (-not (Test-FrontmatterExists $File.FullName)) {
-        throw "Missing YAML frontmatter delimiters: $($File.FullName)"
-    }
-    if (Test-FrontmatterHasKey $File.FullName 'agent') {
-        throw "Prompt frontmatter uses deprecated key \"agent\"; use \"mode\" instead: $($File.FullName)"
-    }
-}
+Validate-AssetRoot $RootDir $true
 
-foreach ($SkillDir in Get-ChildItem -LiteralPath $SkillsSrc -Directory) {
-    $SkillFile = Join-Path $SkillDir.FullName 'SKILL.md'
-    if (-not (Test-Path -LiteralPath $SkillFile -PathType Leaf)) {
-        throw "Missing SKILL.md in skill folder: $($SkillDir.FullName)"
-    }
-    if (-not (Test-FrontmatterExists $SkillFile)) {
-        throw "Missing YAML frontmatter delimiters: $SkillFile"
-    }
-    $SkillName = Get-SkillName $SkillFile
-    if ([string]::IsNullOrWhiteSpace($SkillName)) {
-        throw "Missing skill name in: $SkillFile"
-    }
-    if ($SkillName -ne $SkillDir.Name) {
-        throw "Skill folder/name mismatch: folder=$($SkillDir.Name) name=$SkillName"
-    }
-    if ($SkillName -notmatch '^[a-z0-9][a-z0-9-]{0,63}$') {
-        throw "Invalid skill name: $SkillName"
+if (Test-Path -LiteralPath $ProfilesSrc -PathType Container) {
+    foreach ($ProfileRoot in Get-ChildItem -LiteralPath $ProfilesSrc -Directory) {
+        Validate-AssetRoot $ProfileRoot.FullName $false
     }
 }
 

@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [switch]$DryRun,
+    [string]$Profile = '',
     [string]$PromptsRoot = $(if ($env:COPILOT_USER_PROMPTS_DIR) { $env:COPILOT_USER_PROMPTS_DIR } else { Join-Path $env:APPDATA 'Code\User\prompts' }),
     [string]$SkillsRoot = $(if ($env:COPILOT_SKILLS_DIR) { $env:COPILOT_SKILLS_DIR } else { Join-Path $HOME '.copilot\skills' })
 )
@@ -12,6 +13,8 @@ $RootDir = Split-Path -Parent $PSScriptRoot
 $InstructionsSrc = Join-Path $RootDir 'instructions'
 $PromptsSrc = Join-Path $RootDir 'prompts'
 $SkillsSrc = Join-Path $RootDir 'skills'
+$ProfilesSrc = Join-Path $RootDir 'profiles'
+$ProfileSrc = if ([string]::IsNullOrWhiteSpace($Profile)) { '' } else { Join-Path $ProfilesSrc $Profile }
 $InstructionsDest = Join-Path $PromptsRoot 'instructions'
 $PromptsDest = Join-Path $PromptsRoot 'prompts'
 $Timestamp = Get-Date -Format 'yyyyMMddHHmmssfff'
@@ -68,6 +71,9 @@ function Test-FrontmatterHasKey {
     )
 
     $Lines = Get-Content -LiteralPath $Path -TotalCount 80
+    if ($Lines.Count -lt 2) {
+        return $false
+    }
     foreach ($Line in $Lines[1..($Lines.Count - 1)]) {
         if ($Line -eq '---') {
             return $false
@@ -81,7 +87,6 @@ function Test-FrontmatterHasKey {
 
 function Validate-Sources {
     Require-Directory $InstructionsSrc
-    Require-Directory $PromptsSrc
     Require-Directory $SkillsSrc
 
     foreach ($File in Get-ChildItem -LiteralPath $InstructionsSrc -File) {
@@ -93,15 +98,17 @@ function Validate-Sources {
         }
     }
 
-    foreach ($File in Get-ChildItem -LiteralPath $PromptsSrc -File) {
-        if ($File.Name -notlike '*.prompt.md') {
-            throw "Prompt file must end with .prompt.md: $($File.FullName)"
-        }
-        if (-not (Test-FrontmatterExists $File.FullName)) {
-            throw "Missing YAML frontmatter delimiters: $($File.FullName)"
-        }
-        if (Test-FrontmatterHasKey $File.FullName 'agent') {
-            throw "Prompt frontmatter uses deprecated key \"agent\"; use \"mode\" instead: $($File.FullName)"
+    if (Test-Path -LiteralPath $PromptsSrc -PathType Container) {
+        foreach ($File in Get-ChildItem -LiteralPath $PromptsSrc -File) {
+            if ($File.Name -notlike '*.prompt.md') {
+                throw "Prompt file must end with .prompt.md: $($File.FullName)"
+            }
+            if (-not (Test-FrontmatterExists $File.FullName)) {
+                throw "Missing YAML frontmatter delimiters: $($File.FullName)"
+            }
+            if (Test-FrontmatterHasKey $File.FullName 'agent') {
+                throw "Prompt frontmatter uses deprecated key ""agent""; use ""mode"" instead: $($File.FullName)"
+            }
         }
     }
 
@@ -122,6 +129,63 @@ function Validate-Sources {
         }
         if ($SkillName -notmatch '^[a-z0-9][a-z0-9-]{0,63}$') {
             throw "Invalid skill name: $SkillName"
+        }
+    }
+}
+
+function Validate-ProfileSources {
+    param([Parameter(Mandatory = $true)][string]$ProfileRoot)
+
+    Require-Directory $ProfileRoot
+
+    $ProfileInstructions = Join-Path $ProfileRoot 'instructions'
+    $ProfilePrompts = Join-Path $ProfileRoot 'prompts'
+    $ProfileSkills = Join-Path $ProfileRoot 'skills'
+
+    if (Test-Path -LiteralPath $ProfileInstructions -PathType Container) {
+        foreach ($File in Get-ChildItem -LiteralPath $ProfileInstructions -File) {
+            if ($File.Name -notlike '*.instructions.md') {
+                throw "Instruction file must end with .instructions.md: $($File.FullName)"
+            }
+            if (-not (Test-FrontmatterExists $File.FullName)) {
+                throw "Missing YAML frontmatter delimiters: $($File.FullName)"
+            }
+        }
+    }
+
+    if (Test-Path -LiteralPath $ProfilePrompts -PathType Container) {
+        foreach ($File in Get-ChildItem -LiteralPath $ProfilePrompts -File) {
+            if ($File.Name -notlike '*.prompt.md') {
+                throw "Prompt file must end with .prompt.md: $($File.FullName)"
+            }
+            if (-not (Test-FrontmatterExists $File.FullName)) {
+                throw "Missing YAML frontmatter delimiters: $($File.FullName)"
+            }
+            if (Test-FrontmatterHasKey $File.FullName 'agent') {
+                throw "Prompt frontmatter uses deprecated key ""agent""; use ""mode"" instead: $($File.FullName)"
+            }
+        }
+    }
+
+    if (Test-Path -LiteralPath $ProfileSkills -PathType Container) {
+        foreach ($SkillDir in Get-ChildItem -LiteralPath $ProfileSkills -Directory) {
+            $SkillFile = Join-Path $SkillDir.FullName 'SKILL.md'
+            if (-not (Test-Path -LiteralPath $SkillFile -PathType Leaf)) {
+                throw "Missing SKILL.md in skill folder: $($SkillDir.FullName)"
+            }
+            if (-not (Test-FrontmatterExists $SkillFile)) {
+                throw "Missing YAML frontmatter delimiters: $SkillFile"
+            }
+            $SkillName = Get-SkillName $SkillFile
+            if ([string]::IsNullOrWhiteSpace($SkillName)) {
+                throw "Missing skill name in: $SkillFile"
+            }
+            if ($SkillName -ne $SkillDir.Name) {
+                throw "Skill folder/name mismatch: folder=$($SkillDir.Name) name=$SkillName"
+            }
+            if ($SkillName -notmatch '^[a-z0-9][a-z0-9-]{0,63}$') {
+                throw "Invalid skill name: $SkillName"
+            }
         }
     }
 }
@@ -177,21 +241,51 @@ function Copy-KitDirectory {
 }
 
 Write-Verbose "Repository root: $RootDir"
+Write-Verbose "Profile: $(if ([string]::IsNullOrWhiteSpace($Profile)) { 'none' } else { $Profile })"
 Write-Verbose "Prompts root: $PromptsRoot"
 Write-Verbose "Skills root: $SkillsRoot"
 
 Validate-Sources
+if (-not [string]::IsNullOrWhiteSpace($Profile)) {
+    Validate-ProfileSources $ProfileSrc
+}
 
 foreach ($File in Get-ChildItem -LiteralPath $InstructionsSrc -File -Filter '*.instructions.md') {
     Copy-KitFile $File.FullName (Join-Path $InstructionsDest $File.Name)
 }
 
-foreach ($File in Get-ChildItem -LiteralPath $PromptsSrc -File -Filter '*.prompt.md') {
-    Copy-KitFile $File.FullName (Join-Path $PromptsDest $File.Name)
+if (Test-Path -LiteralPath $PromptsSrc -PathType Container) {
+    foreach ($File in Get-ChildItem -LiteralPath $PromptsSrc -File -Filter '*.prompt.md') {
+        Copy-KitFile $File.FullName (Join-Path $PromptsDest $File.Name)
+    }
 }
 
 foreach ($SkillDir in Get-ChildItem -LiteralPath $SkillsSrc -Directory) {
     Copy-KitDirectory $SkillDir.FullName (Join-Path $SkillsRoot $SkillDir.Name)
+}
+
+if (-not [string]::IsNullOrWhiteSpace($Profile)) {
+    $ProfileInstructions = Join-Path $ProfileSrc 'instructions'
+    $ProfilePrompts = Join-Path $ProfileSrc 'prompts'
+    $ProfileSkills = Join-Path $ProfileSrc 'skills'
+
+    if (Test-Path -LiteralPath $ProfileInstructions -PathType Container) {
+        foreach ($File in Get-ChildItem -LiteralPath $ProfileInstructions -File -Filter '*.instructions.md') {
+            Copy-KitFile $File.FullName (Join-Path $InstructionsDest $File.Name)
+        }
+    }
+
+    if (Test-Path -LiteralPath $ProfilePrompts -PathType Container) {
+        foreach ($File in Get-ChildItem -LiteralPath $ProfilePrompts -File -Filter '*.prompt.md') {
+            Copy-KitFile $File.FullName (Join-Path $PromptsDest $File.Name)
+        }
+    }
+
+    if (Test-Path -LiteralPath $ProfileSkills -PathType Container) {
+        foreach ($SkillDir in Get-ChildItem -LiteralPath $ProfileSkills -Directory) {
+            Copy-KitDirectory $SkillDir.FullName (Join-Path $SkillsRoot $SkillDir.Name)
+        }
+    }
 }
 
 if ($DryRun) {
