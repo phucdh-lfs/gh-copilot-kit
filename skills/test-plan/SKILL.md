@@ -1,8 +1,10 @@
 ---
-description: "Create a focused test plan for a feature, bug fix, migration, or risky code change."
+name: test-plan
+description: "Create a focused test plan for a feature, bug fix, migration, or risky code change. Use when asked for validation steps, regression coverage, or test strategy."
 argument-hint: "Describe the change and risk areas"
-mode: "agent"
 ---
+# Test Plan
+
 Create a practical test plan for the described change.
 
 Include:

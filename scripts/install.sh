@@ -6,6 +6,7 @@ PROMPTS_ROOT="${COPILOT_USER_PROMPTS_DIR:-$HOME/Library/Application Support/Code
 SKILLS_ROOT="${COPILOT_SKILLS_DIR:-$HOME/.copilot/skills}"
 DRY_RUN=0
 VERBOSE=0
+PROFILE=""
 TIMESTAMP="$(date +%Y%m%d%H%M%S)-$$"
 
 usage() {
@@ -15,6 +16,7 @@ Usage: scripts/install.sh [options]
 Options:
   --dry-run                 Print actions without changing files
   --verbose                 Print resolved paths and copy operations
+  --profile NAME            Install common assets plus profile overlays from profiles/NAME
   --prompts-root PATH       Override VS Code user prompts root
   --skills-root PATH        Override Copilot skills root
   -h, --help                Show this help
@@ -53,6 +55,10 @@ while [[ $# -gt 0 ]]; do
       VERBOSE=1
       shift
       ;;
+    --profile)
+      PROFILE="${2:?Missing value for --profile}"
+      shift 2
+      ;;
     --prompts-root)
       PROMPTS_ROOT="${2:?Missing value for --prompts-root}"
       shift 2
@@ -76,8 +82,14 @@ done
 INSTRUCTIONS_SRC="$ROOT_DIR/instructions"
 PROMPTS_SRC="$ROOT_DIR/prompts"
 SKILLS_SRC="$ROOT_DIR/skills"
+PROFILES_SRC="$ROOT_DIR/profiles"
+PROFILE_SRC=""
 INSTRUCTIONS_DEST="$PROMPTS_ROOT/instructions"
 PROMPTS_DEST="$PROMPTS_ROOT/prompts"
+
+if [[ -n "$PROFILE" ]]; then
+  PROFILE_SRC="$PROFILES_SRC/$PROFILE"
+fi
 
 require_dir() {
   local path="$1"
@@ -105,7 +117,6 @@ frontmatter_has_key() {
 
 validate_sources() {
   require_dir "$INSTRUCTIONS_SRC"
-  require_dir "$PROMPTS_SRC"
   require_dir "$SKILLS_SRC"
 
   local file
@@ -120,20 +131,22 @@ validate_sources() {
     fi
   done < <(find "$INSTRUCTIONS_SRC" -maxdepth 1 -type f -print0)
 
-  while IFS= read -r -d '' file; do
-    case "$file" in
-      *.prompt.md) ;;
-      *) log "Prompt file must end with .prompt.md: $file"; exit 1 ;;
-    esac
-    if ! frontmatter_exists "$file"; then
-      log "Missing YAML frontmatter delimiters: $file"
-      exit 1
-    fi
-    if frontmatter_has_key "$file" 'agent'; then
-      log "Prompt frontmatter uses deprecated key \"agent\"; use \"mode\" instead: $file"
-      exit 1
-    fi
-  done < <(find "$PROMPTS_SRC" -maxdepth 1 -type f -print0)
+  if [[ -d "$PROMPTS_SRC" ]]; then
+    while IFS= read -r -d '' file; do
+      case "$file" in
+        *.prompt.md) ;;
+        *) log "Prompt file must end with .prompt.md: $file"; exit 1 ;;
+      esac
+      if ! frontmatter_exists "$file"; then
+        log "Missing YAML frontmatter delimiters: $file"
+        exit 1
+      fi
+      if frontmatter_has_key "$file" 'agent'; then
+        log "Prompt frontmatter uses deprecated key \"agent\"; use \"mode\" instead: $file"
+        exit 1
+      fi
+    done < <(find "$PROMPTS_SRC" -maxdepth 1 -type f -print0)
+  fi
 
   local skill_dir skill_file folder_name skill_name
   while IFS= read -r -d '' skill_dir; do
@@ -161,6 +174,74 @@ validate_sources() {
       exit 1
     fi
   done < <(find "$SKILLS_SRC" -mindepth 1 -maxdepth 1 -type d -print0)
+}
+
+validate_profile_sources() {
+  local profile_root="$1"
+  require_dir "$profile_root"
+
+  local profile_instructions="$profile_root/instructions"
+  local profile_prompts="$profile_root/prompts"
+  local profile_skills="$profile_root/skills"
+  local file skill_dir skill_file folder_name skill_name
+
+  if [[ -d "$profile_instructions" ]]; then
+    while IFS= read -r -d '' file; do
+      case "$file" in
+        *.instructions.md) ;;
+        *) log "Instruction file must end with .instructions.md: $file"; exit 1 ;;
+      esac
+      if ! frontmatter_exists "$file"; then
+        log "Missing YAML frontmatter delimiters: $file"
+        exit 1
+      fi
+    done < <(find "$profile_instructions" -maxdepth 1 -type f -print0)
+  fi
+
+  if [[ -d "$profile_prompts" ]]; then
+    while IFS= read -r -d '' file; do
+      case "$file" in
+        *.prompt.md) ;;
+        *) log "Prompt file must end with .prompt.md: $file"; exit 1 ;;
+      esac
+      if ! frontmatter_exists "$file"; then
+        log "Missing YAML frontmatter delimiters: $file"
+        exit 1
+      fi
+      if frontmatter_has_key "$file" 'agent'; then
+        log "Prompt frontmatter uses deprecated key \"agent\"; use \"mode\" instead: $file"
+        exit 1
+      fi
+    done < <(find "$profile_prompts" -maxdepth 1 -type f -print0)
+  fi
+
+  if [[ -d "$profile_skills" ]]; then
+    while IFS= read -r -d '' skill_dir; do
+      skill_file="$skill_dir/SKILL.md"
+      folder_name="$(basename "$skill_dir")"
+      if [[ ! -f "$skill_file" ]]; then
+        log "Missing SKILL.md in skill folder: $skill_dir"
+        exit 1
+      fi
+      if ! frontmatter_exists "$skill_file"; then
+        log "Missing YAML frontmatter delimiters: $skill_file"
+        exit 1
+      fi
+      skill_name="$(extract_skill_name "$skill_file")"
+      if [[ -z "$skill_name" ]]; then
+        log "Missing skill name in: $skill_file"
+        exit 1
+      fi
+      if [[ "$skill_name" != "$folder_name" ]]; then
+        log "Skill folder/name mismatch: folder=$folder_name name=$skill_name"
+        exit 1
+      fi
+      if [[ ! "$skill_name" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]]; then
+        log "Invalid skill name: $skill_name"
+        exit 1
+      fi
+    done < <(find "$profile_skills" -mindepth 1 -maxdepth 1 -type d -print0)
+  fi
 }
 
 ensure_parent_writable() {
@@ -204,24 +285,51 @@ copy_dir() {
 
 main() {
   verbose "Repository root: $ROOT_DIR"
+  verbose "Profile: ${PROFILE:-none}"
   verbose "Prompts root: $PROMPTS_ROOT"
   verbose "Skills root: $SKILLS_ROOT"
 
   validate_sources
+  if [[ -n "$PROFILE" ]]; then
+    validate_profile_sources "$PROFILE_SRC"
+  fi
 
   local file skill_dir name
   while IFS= read -r -d '' file; do
     copy_file "$file" "$INSTRUCTIONS_DEST/$(basename "$file")"
   done < <(find "$INSTRUCTIONS_SRC" -maxdepth 1 -type f -name '*.instructions.md' -print0)
 
-  while IFS= read -r -d '' file; do
-    copy_file "$file" "$PROMPTS_DEST/$(basename "$file")"
-  done < <(find "$PROMPTS_SRC" -maxdepth 1 -type f -name '*.prompt.md' -print0)
+  if [[ -d "$PROMPTS_SRC" ]]; then
+    while IFS= read -r -d '' file; do
+      copy_file "$file" "$PROMPTS_DEST/$(basename "$file")"
+    done < <(find "$PROMPTS_SRC" -maxdepth 1 -type f -name '*.prompt.md' -print0)
+  fi
 
   while IFS= read -r -d '' skill_dir; do
     name="$(basename "$skill_dir")"
     copy_dir "$skill_dir" "$SKILLS_ROOT/$name"
   done < <(find "$SKILLS_SRC" -mindepth 1 -maxdepth 1 -type d -print0)
+
+  if [[ -n "$PROFILE" ]]; then
+    if [[ -d "$PROFILE_SRC/instructions" ]]; then
+      while IFS= read -r -d '' file; do
+        copy_file "$file" "$INSTRUCTIONS_DEST/$(basename "$file")"
+      done < <(find "$PROFILE_SRC/instructions" -maxdepth 1 -type f -name '*.instructions.md' -print0)
+    fi
+
+    if [[ -d "$PROFILE_SRC/prompts" ]]; then
+      while IFS= read -r -d '' file; do
+        copy_file "$file" "$PROMPTS_DEST/$(basename "$file")"
+      done < <(find "$PROFILE_SRC/prompts" -maxdepth 1 -type f -name '*.prompt.md' -print0)
+    fi
+
+    if [[ -d "$PROFILE_SRC/skills" ]]; then
+      while IFS= read -r -d '' skill_dir; do
+        name="$(basename "$skill_dir")"
+        copy_dir "$skill_dir" "$SKILLS_ROOT/$name"
+      done < <(find "$PROFILE_SRC/skills" -mindepth 1 -maxdepth 1 -type d -print0)
+    fi
+  fi
 
   if [[ "$DRY_RUN" -eq 1 ]]; then
     log "Dry run complete. No files were changed."

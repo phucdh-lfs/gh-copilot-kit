@@ -3,13 +3,11 @@
 ## Choose The Right Asset
 
 - Instructions: coding standards, review preferences, architecture constraints, and file-pattern-specific guidance.
-- Prompts: single focused chat tasks with a predictable output format.
 - Skills: multi-step workflows, especially when they include scripts, templates, references, or decision procedures.
 
 ## Naming
 
 - Instruction files: `kebab-case.instructions.md`
-- Prompt files: `kebab-case.prompt.md`
 - Skill folders: `kebab-case`
 - Skill `name`: must exactly match the folder name
 
@@ -23,16 +21,6 @@ Instructions should include:
 ---
 description: "Use when..."
 applyTo: "**/*.ts"
----
-```
-
-Prompts should include:
-
-```yaml
----
-description: "Use when..."
-argument-hint: "Optional input hint"
-mode: "agent"
 ---
 ```
 

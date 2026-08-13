@@ -27,48 +27,72 @@ validate_dir() {
   fi
 }
 
-validate_dir "$ROOT_DIR/instructions"
-validate_dir "$ROOT_DIR/prompts"
-validate_dir "$ROOT_DIR/skills"
+validate_asset_root() {
+  local asset_root="$1"
+  local require_all="$2"
+  local instructions_root="$asset_root/instructions"
+  local prompts_root="$asset_root/prompts"
+  local skills_root="$asset_root/skills"
+  local file skill_dir skill_file folder_name skill_name
 
-while IFS= read -r -d '' file; do
-  case "$file" in
-    *.instructions.md) ;;
-    *) printf 'Instruction file must end with .instructions.md: %s\n' "$file" >&2; exit 1 ;;
-  esac
-  frontmatter_exists "$file" || { printf 'Missing YAML frontmatter delimiters: %s\n' "$file" >&2; exit 1; }
-done < <(find "$ROOT_DIR/instructions" -maxdepth 1 -type f -print0)
+  if [[ "$require_all" -eq 1 ]]; then
+    validate_dir "$instructions_root"
+    validate_dir "$skills_root"
+  fi
 
-while IFS= read -r -d '' file; do
-  case "$file" in
-    *.prompt.md) ;;
-    *) printf 'Prompt file must end with .prompt.md: %s\n' "$file" >&2; exit 1 ;;
-  esac
-  frontmatter_exists "$file" || { printf 'Missing YAML frontmatter delimiters: %s\n' "$file" >&2; exit 1; }
-  frontmatter_has_key "$file" 'agent' && { printf 'Prompt frontmatter uses deprecated key "agent"; use "mode" instead: %s\n' "$file" >&2; exit 1; }
-done < <(find "$ROOT_DIR/prompts" -maxdepth 1 -type f -print0)
+  if [[ -d "$instructions_root" ]]; then
+    while IFS= read -r -d '' file; do
+      case "$file" in
+        *.instructions.md) ;;
+        *) printf 'Instruction file must end with .instructions.md: %s\n' "$file" >&2; exit 1 ;;
+      esac
+      frontmatter_exists "$file" || { printf 'Missing YAML frontmatter delimiters: %s\n' "$file" >&2; exit 1; }
+    done < <(find "$instructions_root" -maxdepth 1 -type f -print0)
+  fi
 
-while IFS= read -r -d '' skill_dir; do
-  skill_file="$skill_dir/SKILL.md"
-  folder_name="$(basename "$skill_dir")"
-  if [[ ! -f "$skill_file" ]]; then
-    printf 'Missing SKILL.md in skill folder: %s\n' "$skill_dir" >&2
-    exit 1
+  if [[ -d "$prompts_root" ]]; then
+    while IFS= read -r -d '' file; do
+      case "$file" in
+        *.prompt.md) ;;
+        *) printf 'Prompt file must end with .prompt.md: %s\n' "$file" >&2; exit 1 ;;
+      esac
+      frontmatter_exists "$file" || { printf 'Missing YAML frontmatter delimiters: %s\n' "$file" >&2; exit 1; }
+      frontmatter_has_key "$file" 'agent' && { printf 'Prompt frontmatter uses deprecated key "agent"; use "mode" instead: %s\n' "$file" >&2; exit 1; }
+    done < <(find "$prompts_root" -maxdepth 1 -type f -print0)
   fi
-  frontmatter_exists "$skill_file" || { printf 'Missing YAML frontmatter delimiters: %s\n' "$skill_file" >&2; exit 1; }
-  skill_name="$(extract_skill_name "$skill_file")"
-  if [[ -z "$skill_name" ]]; then
-    printf 'Missing skill name in: %s\n' "$skill_file" >&2
-    exit 1
+
+  if [[ -d "$skills_root" ]]; then
+    while IFS= read -r -d '' skill_dir; do
+      skill_file="$skill_dir/SKILL.md"
+      folder_name="$(basename "$skill_dir")"
+      if [[ ! -f "$skill_file" ]]; then
+        printf 'Missing SKILL.md in skill folder: %s\n' "$skill_dir" >&2
+        exit 1
+      fi
+      frontmatter_exists "$skill_file" || { printf 'Missing YAML frontmatter delimiters: %s\n' "$skill_file" >&2; exit 1; }
+      skill_name="$(extract_skill_name "$skill_file")"
+      if [[ -z "$skill_name" ]]; then
+        printf 'Missing skill name in: %s\n' "$skill_file" >&2
+        exit 1
+      fi
+      if [[ "$skill_name" != "$folder_name" ]]; then
+        printf 'Skill folder/name mismatch: folder=%s name=%s\n' "$folder_name" "$skill_name" >&2
+        exit 1
+      fi
+      if [[ ! "$skill_name" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]]; then
+        printf 'Invalid skill name: %s\n' "$skill_name" >&2
+        exit 1
+      fi
+    done < <(find "$skills_root" -mindepth 1 -maxdepth 1 -type d -print0)
   fi
-  if [[ "$skill_name" != "$folder_name" ]]; then
-    printf 'Skill folder/name mismatch: folder=%s name=%s\n' "$folder_name" "$skill_name" >&2
-    exit 1
-  fi
-  if [[ ! "$skill_name" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]]; then
-    printf 'Invalid skill name: %s\n' "$skill_name" >&2
-    exit 1
-  fi
-done < <(find "$ROOT_DIR/skills" -mindepth 1 -maxdepth 1 -type d -print0)
+}
+
+validate_asset_root "$ROOT_DIR" 1
+
+if [[ -d "$ROOT_DIR/profiles" ]]; then
+  while IFS= read -r -d '' profile_root; do
+    validate_asset_root "$profile_root" 0
+  done < <(find "$ROOT_DIR/profiles" -mindepth 1 -maxdepth 1 -type d -print0)
+fi
 
 printf 'Copilot team kit validation passed.\n'
