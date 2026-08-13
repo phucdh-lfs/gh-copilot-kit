@@ -40,6 +40,24 @@ function Get-SkillName {
     return $null
 }
 
+function Test-FrontmatterHasKey {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Key
+    )
+
+    $Lines = Get-Content -LiteralPath $Path -TotalCount 80
+    foreach ($Line in $Lines[1..($Lines.Count - 1)]) {
+        if ($Line -eq '---') {
+            return $false
+        }
+        if ($Line -match "^$([regex]::Escape($Key))\s*:") {
+            return $true
+        }
+    }
+    return $false
+}
+
 Require-Directory $InstructionsSrc
 Require-Directory $PromptsSrc
 Require-Directory $SkillsSrc
@@ -59,6 +77,9 @@ foreach ($File in Get-ChildItem -LiteralPath $PromptsSrc -File) {
     }
     if (-not (Test-FrontmatterExists $File.FullName)) {
         throw "Missing YAML frontmatter delimiters: $($File.FullName)"
+    }
+    if (Test-FrontmatterHasKey $File.FullName 'agent') {
+        throw "Prompt frontmatter uses deprecated key \"agent\"; use \"mode\" instead: $($File.FullName)"
     }
 }
 

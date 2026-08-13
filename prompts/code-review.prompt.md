@@ -1,7 +1,7 @@
 ---
-description: "Review a code change for defects, regressions, missing tests, and maintainability risks."
+description: "Review a code change for defects, regressions, security risks, missing tests, and maintainability risks."
 argument-hint: "Scope to review, such as staged changes, a branch diff, or selected files"
-agent: "agent"
+mode: "agent"
 ---
 Review the requested change with a bug-focused engineering lens.
 
@@ -14,6 +14,7 @@ Prioritize findings over summary. For each finding include:
 
 Also include:
 
+- Any security risk introduced or left unmitigated, such as unsafe input handling, authz/authn gaps, secret exposure, injection risk, insecure defaults, or risky dependency changes
 - Missing or weak test coverage
 - Open questions or assumptions
 - A short change summary only after findings

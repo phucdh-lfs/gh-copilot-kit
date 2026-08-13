@@ -32,6 +32,7 @@ Prompts should include:
 ---
 description: "Use when..."
 argument-hint: "Optional input hint"
+mode: "agent"
 ---
 ```
 
